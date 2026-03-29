@@ -39,13 +39,29 @@ This replaces the free int field. Callers can now only pass Priority.LOW, Priori
 **a. Constraints and priorities**
 
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
+
+The scheduler considers three main constraints:
+
+Time is the primary hard constraint — the owner's available_minutes budget acts as a cap. Tasks are greedily packed into the session starting from session_start_minutes, and any task whose duration exceeds the remaining time is skipped (deferred or marked as too-long).
+
+Priority is the primary soft constraint — tasks are sorted by their Priority enum value (descending), so high-priority tasks are scheduled first and are least likely to get bumped when time runs short.
+
+Preferences act as a tiebreaker — the owner's preferred task categories (e.g., "grooming", "exercise") are boosted in sort order so that preferred-category tasks slot in before non-preferred ones of equal priority and duration.
+
 - How did you decide which constraints mattered most?
+
+Priority was ranked first because a missed high-priority task (like medication) has real consequences for a pet's wellbeing, so it should always be scheduled before lower-priority ones regardless of preferences. Time comes next as a hard physical constraint. Preferences were treated last as a quality-of-life tiebreaker, since they improve the owner's experience but don't affect correctness or pet health the way priority and time do.
 
 **b. Tradeoffs**
 
 - Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
 
+The scheduler uses a greedy first-fit approach — it picks tasks in priority order and immediately locks each one in if it fits. This is fast and simple, but it can leave time on the table. For example, one large low-priority task might get scheduled early and block several smaller high-priority tasks that could have fit in the same slot.
+
+Another thing that is a tradeoff is the way my current scheduler is stacking tasks one right after the other with no break inbetween. I think that in a future iteration, it would be more schedule sensitive and allow the user to pick a time to make things happen. This is something I'm planning on adressing once I have had time to test the full program in the web UI.
+
+- Why is that tradeoff reasonable for this scenario?
+I could do something dynamic like knapsack optimization to maximize total value within the time budget, but I chose the greedy method was chosen for simplicity and predictability. I kind of want to be able to choose a simple option first and see how it plays out before making larger changes. 
 ---
 
 ## 3. AI Collaboration
@@ -58,6 +74,9 @@ This replaces the free int field. Callers can now only pass Priority.LOW, Priori
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
+
+The assignment asked for 
+
 - How did you evaluate or verify what the AI suggested?
 
 ---
@@ -85,6 +104,8 @@ This replaces the free int field. Callers can now only pass Priority.LOW, Priori
 **b. What you would improve**
 
 - If you had another iteration, what would you improve or redesign?
+
+I came up with an interesting situation - the assignment asked me to create a test to detext task conflicts. The way my program was structured, everything was slotted in sequentially, making conflicts impossible. When I implemented this test as requested, it felt a little bit superficial since the situation where it would arise wouldn't occur in my program as designed. This felt like something I put in just for the sake of the assignment.
 
 **c. Key takeaway**
 

@@ -104,3 +104,24 @@ print_task_list(
 scheduler = Scheduler(owner=owner)
 plan = scheduler.build_plan()
 print_schedule(plan)
+
+# --- Conflict detection test ---
+# Build two overlapping entries manually so detect_conflicts has something to flag.
+# Both tasks start at 08:00, so they overlap regardless of duration.
+
+conflicting_schedule = [
+    {"task": "Morning walk",  "pet": "Biscuit", "start_time": "08:00", "duration": 30, "priority": "HIGH",   "preferred": True},
+    {"task": "Breakfast",     "pet": "Biscuit", "start_time": "08:00", "duration": 10, "priority": "HIGH",   "preferred": True},
+    {"task": "Litter box clean", "pet": "Mochi","start_time": "08:35", "duration": 10, "priority": "HIGH",   "preferred": False},
+]
+
+print("=" * 60)
+print("  CONFLICT DETECTION TEST")
+print("=" * 60)
+warnings = scheduler.detect_conflicts(conflicting_schedule)
+if warnings:
+    for w in warnings:
+        print(f"  WARNING: {w}")
+else:
+    print("  No conflicts detected.")
+print("=" * 60 + "\n")

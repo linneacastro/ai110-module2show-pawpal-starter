@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from enum import IntEnum
 from typing import List, Optional
 from uuid import UUID, uuid4
+
+VALID_FREQUENCIES = {"daily", "weekly"}
 
 
 class Priority(IntEnum):
@@ -21,21 +24,47 @@ class Task:
     completed: bool = False
     id: UUID = field(default_factory=uuid4)
     assigned: bool = field(default=False, repr=False, init=False)
+    frequency: Optional[str] = None
+    due_date: Optional[date] = None
 
     def __setattr__(self, name: str, value) -> None:
-        """Validate duration and priority before setting any attribute."""
+        """Validate duration, priority, and frequency before setting any attribute."""
         title = getattr(self, "title", "(unknown)")
         if name == "duration" and value <= 0:
             raise ValueError(f"Task '{title}' duration must be greater than 0.")
         if name == "priority" and not isinstance(value, Priority):
             raise ValueError(f"Task '{title}' priority must be a Priority enum value.")
+        if name == "frequency" and value is not None and value not in VALID_FREQUENCIES:
+            raise ValueError(f"Task '{title}' frequency must be 'daily', 'weekly', or None.")
         object.__setattr__(self, name, value)
 
-    def mark_complete(self) -> None:
-        """Mark this task as completed, raising an error if already complete."""
+    def mark_complete(self) -> Optional[Task]:
+        """Mark this task as completed and return the next occurrence if recurring.
+
+        For a recurring task (frequency='daily' or 'weekly'), a new Task is
+        returned with the same attributes but a fresh id, completed=False, and
+        a due_date advanced by one day or one week using timedelta.  The base
+        date for the calculation is due_date if set, otherwise today.
+
+        Returns None for one-off tasks (frequency=None).
+        Raises RuntimeError if the task is already marked complete.
+        """
         if self.completed:
             raise RuntimeError(f"Task '{self.title}' is already marked complete.")
         self.completed = True
+        if self.frequency is None:
+            return None
+        delta = timedelta(days=1) if self.frequency == "daily" else timedelta(weeks=1)
+        base = max(self.due_date, date.today()) if self.due_date is not None else date.today()
+        next_due = base + delta
+        return Task(
+            title=self.title,
+            category=self.category,
+            duration=self.duration,
+            priority=self.priority,
+            frequency=self.frequency,
+            due_date=next_due,
+        )
 
 
 @dataclass
@@ -63,7 +92,7 @@ class Pet:
     def add_task(self, task: Task) -> None:
         """Assign a task to this pet, raising an error if already assigned elsewhere."""
         if task.assigned:
-            raise ValueError(f"Task '{task.title}' is already assigned to another pet.")
+            raise ValueError(f"Task '{task.title}' is already assigned to a pet.")
         task.assigned = True
         self.tasks.append(task)
 
@@ -71,6 +100,10 @@ class Pet:
         """Replace an existing task (matched by id) with the updated version."""
         for i, t in enumerate(self.tasks):
             if t.id == task.id:
+                if t.completed:
+                    raise RuntimeError(f"Task '{t.title}' is already completed and cannot be edited.")
+                if task.completed:
+                    raise ValueError(f"Cannot replace '{t.title}' with an already-completed task. Use complete_task() instead.")
                 if task.assigned and t is not task:
                     raise ValueError(f"Task '{task.title}' is already assigned to another pet.")
                 t.assigned = False
@@ -81,11 +114,25 @@ class Pet:
 
     def remove_task(self, task: Task) -> None:
         """Remove a task from this pet by id, unassigning it."""
-        for i, t in enumerate(self.tasks):
+        for t in self.tasks:
             if t.id == task.id:
-                self.tasks.pop(i)
+                self.tasks.remove(t)
                 t.assigned = False
                 return
+        raise ValueError(f"Task '{task.title}' not found for {self.name}.")
+
+    def complete_task(self, task: Task) -> Optional[Task]:
+        """Mark a task complete and, if recurring, add the next occurrence to this pet.
+
+        Returns the newly created next Task if the task recurs, or None if it
+        was a one-off task.
+        """
+        for stored in self.tasks:
+            if stored.id == task.id:
+                next_task = stored.mark_complete()
+                if next_task is not None:
+                    self.add_task(next_task)
+                return next_task
         raise ValueError(f"Task '{task.title}' not found for {self.name}.")
 
     def get_tasks(self) -> List[Task]:
@@ -122,14 +169,17 @@ class Owner:
     @session_start.setter
     def session_start(self, value: str) -> None:
         """Set session_start, validating format and updating session_start_minutes."""
-        parts = value.split(":")
         try:
-            if len(parts) != 2 or not (0 <= int(parts[0]) <= 23 and 0 <= int(parts[1]) <= 59):
+            parts = value.split(":")
+            if len(parts) != 2:
+                raise ValueError
+            h, m = int(parts[0]), int(parts[1])
+            if not (0 <= h <= 23 and 0 <= m <= 59):
                 raise ValueError
         except (ValueError, AttributeError):
             raise ValueError(f"session_start '{value}' must be a valid time in HH:MM format.")
         self._session_start = value
-        self._session_start_minutes = int(parts[0]) * 60 + int(parts[1])
+        self._session_start_minutes = h * 60 + m
 
     @property
     def session_start_minutes(self) -> int:
@@ -146,7 +196,10 @@ class Owner:
         self.pets.append(pet)
 
     def get_tasks(self, completed: Optional[bool] = None, pet_name: Optional[str] = None) -> List[Task]:
-        """Return tasks across all pets, optionally filtered by completion status and/or pet name."""
+        """Return tasks across all pets, optionally filtered by completion status and/or pet name.
+
+        Raises ValueError if pet_name is provided but no matching pet is found.
+        """
         results = []
         found_pet = False
         for pet in self.pets:
@@ -162,11 +215,9 @@ class Owner:
 
     def remove_pet(self, pet: Pet) -> None:
         """Unregister a pet from this owner, clearing its owner reference."""
-        for i, p in enumerate(self.pets):
+        for p in self.pets:
             if p is pet:
-                self.pets.pop(i)
-                for task in pet.tasks:
-                    task.assigned = False
+                self.pets.remove(p)
                 object.__setattr__(pet, "_owner", None)
                 return
         raise ValueError(f"No pet named '{pet.name}' found for {self.name}.")
@@ -178,7 +229,23 @@ class Scheduler:
         self.owner = owner
 
     def build_plan(self) -> dict:
-        """Build a prioritized schedule of pet tasks within the owner's available time budget."""
+        """Build a prioritized schedule of pet tasks within the owner's available time budget.
+
+        Tasks are sorted by priority (descending), then by whether their category matches
+        the owner's preferences, then by duration (descending). A greedy first pass schedules
+        tasks in order; a second pass attempts to fit any that were skipped.
+
+        Returns a dict with keys:
+            - 'owner': owner name
+            - 'scheduled': list of task entries that fit, each with a 'start_time'
+            - 'deferred': skipped tasks that could fit in a longer session
+            - 'too_long': skipped tasks that exceed the total available time budget
+            - 'total_scheduled_minutes': total minutes consumed
+            - 'remaining_minutes': unused minutes in the session
+            - 'warnings': list of conflict warning strings from detect_conflicts
+
+        Raises ValueError if the owner has no registered pets, or no incomplete tasks.
+        """
         if not self.owner.pets:
             raise ValueError(f"'{self.owner.name}' has no registered pets to schedule.")
         preferences = {p.lower() for p in self.owner.preferences}
@@ -186,7 +253,7 @@ class Scheduler:
         candidate_tasks = [
             (pet, task)
             for pet in self.owner.pets
-            for task in list(pet.tasks)
+            for task in pet.tasks
             if not task.completed
         ]
 
@@ -218,32 +285,29 @@ class Scheduler:
             }
             if task.duration <= remaining_minutes:
                 total = session_start_minutes + current_minute
-                scheduled.append({**entry, "start_time": f"{(total // 60) % 24:02}:{total % 60:02}"})
+                scheduled.append({**entry, "start_time": f"{total // 60:02}:{total % 60:02}"})
                 remaining_minutes -= task.duration
                 current_minute += task.duration
             else:
                 first_pass_skipped.append(entry)
 
-        remaining_to_fit = sorted(first_pass_skipped, key=lambda e: e["duration"])
-        while True:
-            fitted_any = False
-            still_unfit = []
-            for entry in remaining_to_fit:
-                if entry["duration"] <= remaining_minutes:
-                    total = session_start_minutes + current_minute
-                    scheduled.append({**entry, "start_time": f"{(total // 60) % 24:02}:{total % 60:02}"})
-                    remaining_minutes -= entry["duration"]
-                    current_minute += entry["duration"]
-                    fitted_any = True
-                else:
-                    still_unfit.append(entry)
-            remaining_to_fit = still_unfit
-            if not fitted_any:
-                break
-        second_pass_skipped = remaining_to_fit
+        second_pass_skipped = []
+        for entry in sorted(
+            first_pass_skipped,
+            key=lambda e: (-Priority[e["priority"]].value, 0 if e["preferred"] else 1, -e["duration"]),
+        ):
+            if entry["duration"] <= remaining_minutes:
+                total = session_start_minutes + current_minute
+                scheduled.append({**entry, "start_time": f"{total // 60:02}:{total % 60:02}"})
+                remaining_minutes -= entry["duration"]
+                current_minute += entry["duration"]
+            else:
+                second_pass_skipped.append(entry)
 
         too_long = [e for e in second_pass_skipped if e["duration"] > self.owner.available_minutes]
         deferred = [e for e in second_pass_skipped if e["duration"] <= self.owner.available_minutes]
+
+        warnings = self.detect_conflicts(scheduled)
 
         return {
             "owner": self.owner.name,
@@ -252,4 +316,31 @@ class Scheduler:
             "too_long": too_long,
             "total_scheduled_minutes": self.owner.available_minutes - remaining_minutes,
             "remaining_minutes": remaining_minutes,
+            "warnings": warnings,
         }
+
+    def detect_conflicts(self, scheduled: list) -> list:
+        """Check a list of scheduled task entries for time overlaps.
+
+        Returns a list of warning strings describing each conflict found.
+        An empty list means no conflicts were detected.
+        """
+        def to_minutes(time_str: str) -> int:
+            h, m = time_str.split(":")
+            return int(h) * 60 + int(m)
+
+        warnings = []
+        for i, a in enumerate(scheduled):
+            for b in scheduled[i + 1:]:
+                a_start = to_minutes(a["start_time"])
+                a_end = a_start + a["duration"]
+                b_start = to_minutes(b["start_time"])
+                b_end = b_start + b["duration"]
+                if a_start < b_end and b_start < a_end:
+                    warnings.append(
+                        f"Conflict: '{a['task']}' ({a['pet']}, "
+                        f"{a['start_time']}–{a_end // 60:02}:{a_end % 60:02}) overlaps with "
+                        f"'{b['task']}' ({b['pet']}, "
+                        f"{b['start_time']}–{b_end // 60:02}:{b_end % 60:02})"
+                    )
+        return warnings
