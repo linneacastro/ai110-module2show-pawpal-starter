@@ -2,6 +2,11 @@
 
 You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
 
+## 📸 Demo
+
+![PawPal+ screenshot 1](screenshot1.png)
+![PawPal+ screenshot 2](screenshot2.png)
+
 ## Scenario
 
 A busy pet owner needs help staying consistent with pet care. They want an assistant that can:
@@ -17,7 +22,7 @@ Your job is to design the system first (UML), then implement the logic in Python
 Your final app should:
 
 - Let a user enter basic owner + pet info
-- Let a user add/edit tasks (duration + priority at minimum)
+- Let a user add/edit/remove tasks (duration + priority at minimum)
 - Generate a daily schedule/plan based on constraints and priorities
 - Display the plan clearly (and ideally explain the reasoning)
 - Include tests for the most important scheduling behaviors
@@ -31,6 +36,44 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+## Features
+
+### Priority-based sort with preference boosting
+Tasks are sorted before scheduling using a three-key comparator:
+
+1. **Priority** (HIGH > MEDIUM > LOW) — the primary sort key.
+2. **Preferred category** — tasks whose category matches the owner's stated preferences (e.g., "walk", "grooming") are promoted as a tiebreaker, so equal-priority tasks the owner cares about most go first.
+3. **Duration** (longer first) — a final tiebreaker that tends to maximize time utilization.
+
+### Calculated start times
+Each scheduled task receives a concrete `start_time` (e.g., `08:30`) derived from the owner's **session start** anchor (stored internally as minutes since midnight). Times increment sequentially as tasks are placed, so the full schedule reads like a real daily plan.
+
+### Two-pass greedy scheduling
+The scheduler runs two passes over the sorted task list:
+
+- **First pass** — tasks are placed in priority order; any task that doesn't fit the remaining budget is skipped and queued for pass two.
+- **Second pass** — skipped tasks are re-sorted by the same comparator and placed into any remaining time gaps. This maximizes session utilization without backtracking.
+
+Tasks that survive both passes are split into two buckets: `deferred` (would fit in a longer session) and `too_long` (exceed the owner's total daily budget entirely).
+
+### Conflict detection
+`Scheduler.detect_conflicts()` checks every pair of scheduled entries for time overlaps using interval arithmetic (`a_start < b_end and b_start < a_end`). Conflicts are returned as human-readable warning strings and displayed prominently in the UI with actionable resolution tips.
+
+### Daily (and weekly) recurrence
+Tasks can carry a `frequency` of `"daily"` or `"weekly"`. When `Pet.complete_task()` is called, it invokes `Task.mark_complete()`, which:
+
+- Marks the current task done.
+- Computes the next due date by advancing from `due_date` (or today if unset) by one day or one week using `timedelta`.
+- Returns a fresh `Task` instance (new UUID, `completed=False`) that is automatically added to the pet's task list.
+
+### Task filtering
+`Owner.get_tasks()` accepts optional `completed` and `pet_name` filters, letting the UI display subsets of tasks (e.g., only incomplete tasks for a specific pet) without exposing raw task lists directly.
+
+### Task removal
+The "View & Filter Tasks" section includes a **Remove a Task** form. A dropdown lists every task across all pets as `"PetName — Task Title"`; submitting the form calls `Pet.remove_task()`, unassigns the task, and invalidates the cached schedule so the next generated plan reflects the deletion.
+
+---
 
 ## Smarter Scheduling
 
