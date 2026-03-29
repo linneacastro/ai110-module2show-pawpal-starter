@@ -1,5 +1,15 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import List
+from enum import IntEnum
+from typing import List, Optional
+from uuid import UUID, uuid4
+
+
+class Priority(IntEnum):
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
 
 
 @dataclass
@@ -7,7 +17,8 @@ class Task:
     title: str
     category: str
     duration: int
-    priority: int
+    priority: Priority
+    id: UUID = field(default_factory=uuid4)
     completed: bool = False
 
     def mark_complete(self) -> None:
@@ -20,6 +31,7 @@ class Pet:
     species: str
     age: int
     tasks: List[Task] = field(default_factory=list)
+    owner: Optional[Owner] = field(default=None, repr=False)
 
     def add_task(self, task: Task) -> None:
         pass
@@ -31,7 +43,7 @@ class Pet:
         pass
 
     def get_tasks(self) -> List[Task]:
-        pass
+        return list(self.tasks)
 
 
 class Owner:
@@ -46,9 +58,9 @@ class Owner:
 
 
 class Scheduler:
-    def __init__(self, owner: Owner, pet: Pet):
+    def __init__(self, owner: Owner, pets: List[Pet]):
         self.owner = owner
-        self.pet = pet
+        self.pets = pets
 
     def build_plan(self) -> dict:
         pass

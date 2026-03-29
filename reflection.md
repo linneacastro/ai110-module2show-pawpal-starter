@@ -12,12 +12,25 @@ The three core actions, summarized:
 **a. Initial design**
 
 - Briefly describe your initial UML design.
+The system is built around four classes. The Owner holds the user's name, how many minutes they have available in a day, and care preferences. They can have one or more Pets, and each Pet stores basic info like name, species, and age, along with a list of Tasks that can be added, edited, or removed. Each Task captures the details of a single care activity: its title, category (like feeding or grooming), how long it takes, its priority level, and whether it's been completed. Finally, the Scheduler takes the Owner's time constraints and the Pet's task list and uses them together to produce a daily care plan.
+
 - What classes did you include, and what responsibilities did you assign to each?
+
+There are four classes, each with a focused responsibility:
+
+Owner — represents the person using the app; holds their name, available time, and preferences, and keeps track of which pets they have.
+Pet — represents the pet being cared for; stores basic info like name, species, and age, and manages the list of tasks associated with that pet.
+Task — represents a single care activity; holds the details like title, category, duration, priority, and whether it's been completed.
+Scheduler — the brain of the app; it reads the owner's time constraints and the pet's task list and uses that information to build a daily care plan.
 
 **b. Design changes**
 
 - Did your design change during implementation?
+Yes! When I asked about bottlenecks in logic or missing relationships, it returned to me quite a few items. This was a really eye opening prompt.
+
 - If yes, describe at least one change and why you made it.
+Here is one change made to the Priority. Priority is now  IntEnum (new)
+This replaces the free int field. Callers can now only pass Priority.LOW, Priority.MEDIUM, or Priority.HIGH. Before there could be ambiguous values passed in like 99 or -1 that made their way to build_plan().
 
 ---
 
