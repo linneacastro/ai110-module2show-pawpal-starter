@@ -1,10 +1,22 @@
 classDiagram
-    class Owner {
-        +String name
-        +int available_minutes
-        +List~String~ preferences
-        +List~Pet~ pets
-        +add_pet(pet: Pet) void
+    class Priority {
+        <<enumeration>>
+        LOW = 1
+        MEDIUM = 2
+        HIGH = 3
+    }
+
+    class Task {
+        +UUID id
+        +String title
+        +String category
+        +int duration
+        +Priority priority
+        +bool completed
+        +bool assigned
+        +Optional~String~ frequency
+        +Optional~date~ due_date
+        +mark_complete() Optional~Task~
     }
 
     class Pet {
@@ -12,28 +24,34 @@ classDiagram
         +String species
         +int age
         +List~Task~ tasks
+        +Optional~Owner~ owner
         +add_task(task: Task) void
         +edit_task(task: Task) void
         +remove_task(task: Task) void
+        +complete_task(task: Task) Optional~Task~
         +get_tasks() List~Task~
     }
 
-    class Task {
-        +String title
-        +String category
-        +int duration
-        +int priority
-        +bool completed
-        +mark_complete() void
+    class Owner {
+        +String name
+        +int available_minutes
+        +String session_start
+        +int session_start_minutes
+        +List~String~ preferences
+        +List~Pet~ pets
+        +add_pet(pet: Pet) void
+        +remove_pet(pet: Pet) void
+        +get_tasks(completed: Optional~bool~, pet_name: Optional~String~) List~Task~
     }
 
     class Scheduler {
         +Owner owner
-        +Pet pet
         +build_plan() dict
+        +detect_conflicts(scheduled: list) list
     }
 
-    Owner "1" --> "1" Pet : owns
+    Owner "1" --> "0..*" Pet : owns
+    Pet "0..*" --> "0..1" Owner : registered to
     Pet "1" --> "0..*" Task : has
-    Scheduler --> Owner : reads constraints from
-    Scheduler --> Pet : reads tasks from
+    Task --> Priority : uses
+    Scheduler --> Owner : schedules for
